@@ -6,6 +6,7 @@ export const authService = {
     const response = await fetch(`${API_URL}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // ← IMPORTANTE: Enviar cookies
       body: JSON.stringify({ email, password, name })
     });
 
@@ -15,11 +16,7 @@ export const authService = {
     }
 
     const data = await response.json();
-    
-    // Guardar token en localStorage
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-
+    // ← Ya NO guardamos nada en localStorage
     return data;
   },
 
@@ -28,6 +25,7 @@ export const authService = {
     const response = await fetch(`${API_URL}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // ← IMPORTANTE: Enviar cookies
       body: JSON.stringify({ email, password })
     });
 
@@ -37,44 +35,26 @@ export const authService = {
     }
 
     const data = await response.json();
-    
-    // Guardar token en localStorage
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-
+    // ← Ya NO guardamos nada en localStorage
     return data;
   },
 
   // Cerrar sesión
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-  },
-
-  // Obtener usuario actual
-  getCurrentUser: () => {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
-  },
-
-  // Obtener token
-  getToken: () => {
-    return localStorage.getItem('token');
-  },
-
-  // Verificar si está autenticado
-  isAuthenticated: () => {
-    return !!localStorage.getItem('token');
+  logout: async () => {
+    try {
+      await fetch(`${API_URL}/logout`, {
+        method: 'POST',
+        credentials: 'include' // ← IMPORTANTE: Enviar cookies
+      });
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+    }
   },
 
   // Obtener perfil del servidor
   getProfile: async () => {
-    const token = authService.getToken();
-    
     const response = await fetch(`${API_URL}/me`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
+      credentials: 'include' // ← IMPORTANTE: Enviar cookies
     });
 
     if (!response.ok) {
@@ -84,28 +64,15 @@ export const authService = {
     return response.json();
   },
 
-  // Hacer petición autenticada
-  fetchWithAuth: async (url, options = {}) => {
-    const token = authService.getToken();
-    
-    const config = {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    };
-
-    const response = await fetch(url, config);
-    
-    if (response.status === 401) {
-      // Token expirado o inválido
-      authService.logout();
-      window.location.href = '/login';
-      throw new Error('Sesión expirada');
+  // Verificar autenticación llamando al servidor
+  checkAuth: async () => {
+    try {
+      const response = await fetch(`${API_URL}/me`, {
+        credentials: 'include'
+      });
+      return response.ok;
+    } catch {
+      return false;
     }
-
-    return response;
   }
 };
