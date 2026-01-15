@@ -78,6 +78,14 @@ router.post('/register', async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    // ← CAMBIO: Setear la cookie con el token en lugar de enviarlo en el body (HttpOnly para seguridad)
+    res.cookie('token', token, {
+      httpOnly: true, // No accesible desde JavaScript (contra XSS)
+      secure: process.env.NODE_ENV === 'production', // HTTPS en producción
+      sameSite: 'strict', // Contra CSRF
+      maxAge: 24 * 60 * 60 * 1000 // 24 horas en ms
+    });
+
     // No enviar la contraseña al cliente
     const { password: _, ...userWithoutPassword } = newUser;
 
@@ -85,8 +93,7 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({
       message: 'Usuario registrado exitosamente',
-      token,
-      user: userWithoutPassword
+      user: userWithoutPassword // ← CAMBIO: Eliminar 'token' del JSON
     });
   } catch (error) {
     console.error('Error en registro:', error);
@@ -126,12 +133,20 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { 
         userId: user.id, 
-        email: user.email, 
+        email: user.email,
         role: user.role 
       },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
+
+    // ← CAMBIO: Setear la cookie con el token en lugar de enviarlo en el body (HttpOnly para seguridad)
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    });
 
     // No enviar la contraseña al cliente
     const { password: _, ...userWithoutPassword } = user;
@@ -140,8 +155,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       message: 'Login exitoso',
-      token,
-      user: userWithoutPassword
+      user: userWithoutPassword // ← CAMBIO: Eliminar 'token' del JSON
     });
   } catch (error) {
     console.error('Error en login:', error);
@@ -160,6 +174,18 @@ router.get('/me', authenticateToken, (req, res) => {
   res.json(userWithoutPassword);
 });
 
+// POST /api/auth/logout - Cerrar sesión
+router.post('/logout', (req, res) => {
+  // ← AGREGADO: Limpiar la cookie de token para logout
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  });
+
+  res.json({ message: 'Sesión cerrada exitosamente' });
+});
+
 // GET /api/auth/users - Listar usuarios (solo para testing)
 router.get('/users', (req, res) => {
   const usersWithoutPasswords = users.map(u => {
@@ -171,8 +197,7 @@ router.get('/users', (req, res) => {
 
 // Middleware de autenticación
 function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  const token = req.cookies.token; // ← CAMBIO: Leer el token de las cookies en lugar de headers (mejora seguridad contra XSS)
 
   if (!token) {
     return res.status(401).json({ error: 'Token no proporcionado' });

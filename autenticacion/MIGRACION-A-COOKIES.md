@@ -455,18 +455,84 @@ const handleLogout = async () => {
 ### Conceptuales:
 
 1. **¿Qué vulnerabilidades de seguridad previenen las cookies HTTP-only que localStorage no puede prevenir? Crea una analogia de ejemplo para tu explicación**
+Las cookies HttpOnly evitan que JavaScript en la página lea el token. Eso protege contra ataques donde un script malicioso (inyectado por XSS) intenta robar el token y enviarlo fuera.
+
+Analogía:
+Imagina que tu token es una llave que guarda acceso a tu casa.
+
+localStorage es como dejar la llave sobre la mesa: cualquiera que entre a la casa (incluso un ladrón que consiga pasar) puede verla y llevársela.
+
+Una cookie HttpOnly es como poner la llave dentro de una caja fuerte dentro de la casa que solo el portero (el servidor) puede abrir con permiso especial — incluso si un ladrón entra y mira, no puede sacar la llave porque no tiene la combinación.
+
+Qué previene exactamente: robo del token por scripts maliciosos (XSS). localStorage no puede evitar que scripts lean su contenido
 
 2. **¿Por qué es importante el atributo `sameSite: 'strict'` en las cookies?** Investiga: ¿Qué es un ataque CSRF (explica con una analogía) y cómo lo previene este atributo?
+SameSite: 'strict' evita que el navegador envíe la cookie cuando la petición viene desde otro sitio web. Esto ayuda mucho a bloquear ataques CSRF.
+
+Qué es un ataque CSRF (analogía):
+CSRF es como si alguien te hiciera enviar una carta firmada a un banco sin que te des cuenta.
+
+Tú estás conectado a tu banco en otra pestaña.
+
+Un atacante te convence  para que hagas clic en algo en una web maliciosa.
+
+Esa web maliciosa hace que tu navegador envíe una petición al banco usando tus cookies.
+
+El banco cree que la petición viene de ti y realiza la acción (p. ej. transferir dinero).
+
+SameSite: 'strict' impide que esas peticiones iniciadas desde otro sitio incluyan la cookie, por lo que la petición no tendrá la cookie del usuario y el servidor la rechazará. Es como pedir que la carta venga con un sello que solo se puede poner si la escribes desde dentro del banco — si viene desde afuera, no vale.
 
 3. **¿En qué escenarios NO sería recomendable usar cookies para autenticación, explica porque?**
+APIs públicas consumidas por terceros: si otras webs necesitan hacer peticiones en nombre del usuario desde su propio dominio, las cookies con SameSite pueden bloquearlas.
+
+Apps puramente cliente (p. ej. apps móviles o algunas SPAs offline): estas apps controlan mejor tokens en memoria o usan otros métodos porque no pasan por el navegador normal.
+
+Servicios que requieren compartir credenciales entre muchos subdominios sin controles estrictos: configurar cookies para varios dominios puede ser complejo y arriesga exposición si no se hace bien.
+
+Si no puedes garantizar HTTPS en producción: las cookies seguras (Secure) requieren HTTPS; sin HTTPS las cookies pueden exponerse en la red.
 
 ### Técnicas:
 
 4. **¿Qué pasaría si olvidas agregar `credentials: 'include'` en las peticiones fetch del frontend?** Experimenta: Elimina temporalmente esta línea y describe el comportamiento observado.
 
+Si quitas credentials: 'include' en fetch, el navegador no enviará las cookies al hacer la petición. Eso significa:
+
+El servidor no recibirá la cookie de sesión/JWT.
+
+Normalmente obtendrás un 401 No autorizado
+
+En la práctica: la petición parece hecha por un usuario sin sesión.
+
+Cómo se ve en la práctica:
+
+Llamas fetch('/api/protected') sin credentials.
+
+DevTools -> Network: en la petición no aparece la cookie en la cabecera Cookie.
+
+El servidor responde con error de autenticación.
+
+Si añades credentials: 'include' luego, la cookie aparece y la petición funciona.
+
 5. **¿Por qué necesitamos configurar CORS con `credentials: true` en el backend?** Investiga: ¿Qué política de seguridad del navegador está en juego aquí?
 
+Cuando frontend y backend están en dominios diferentes, el navegador aplica la política CORS. Para que el navegador permita enviar cookies en peticiones cross-origin, el servidor debe indicar que acepta credenciales y el origen del frontend.
+
+Qué política del navegador está en juego: la política CORS (Cross-Origin Resource Sharing).
+
+El servidor debe enviar Access-Control-Allow-Credentials: true y permitir el origen
+Si no se configura, el navegador bloquea las cookies por seguridad.
+
 6. **¿Cómo afecta el uso de cookies a la arquitectura si decides separar frontend y backend en dominios diferentes?** Investiga sobre cookies de terceros y las restricciones del navegador.
+
+Si el frontend está en app.example.com y el backend en api.example.com o en otro dominio distinto, las cookies pueden volverse cookies de terceros cuando se envían entre sitios. Los navegadores modernos aplican restricciones fuertes a cookies de terceros (pueden bloquearlas o exigir SameSite=None; Secure).
+
+Consecuencias prácticas:
+
+Necesitas SameSite=None y Secure para que la cookie se envíe en contextos cross-site, pero eso aumenta la exposición y exige HTTPS.
+
+Algunos navegadores o bloqueadores de privacidad podrían bloquear cookies de terceros, rompiendo la autenticación.
+
+Requiere configuración CORS y credentials: include en frontend y Access-Control-Allow-Credentials en backend.
 
 ### Casos Prácticos:
 
@@ -474,9 +540,39 @@ const handleLogout = async () => {
    - ¿Cómo modificarías `maxAge` de la cookie?
    - ¿Qué consideraciones de seguridad debes tener?
 
+Cómo modificar maxAge:
+
+Si quieres que el usuario permanezca "recordado" por ejemplo 30 días, ajustas la cookie: maxAge = 1000 * 60 * 60 * 24 * 30 (milisegundos).
+
+Para "no recordarme" pones duración corta (p. ej. sesión) o expires sólo durante la sesión del navegador.
+
+Consideraciones de seguridad:
+
+Cookies más largas aumentan el riesgo si alguien roba la cookie.
+
+Para mayor seguridad usa refresh tokens con short-lived access tokens: cookie de refresh con HttpOnly y renovación automática.
+
+Ofrece opción de "cerrar todas las sesiones" en la cuenta para invalidar refresh tokens en servidor.
+
+En dispositivos públicos, desaconsejar "recordarme".
+
 8. **Maneja la expiración del token de forma elegante:**
    - ¿Cómo manejarías a nivel de UX (experiencia de usuario) la expiración del token?
    - ¿Cómo redirigirías al login sin perder el contexto de lo que estaba haciendo?
+
+UX al expirar token (simple):
+
+Mostrar un mensaje claro: "Tu sesión expiró. Por favor vuelve a iniciar sesión."
+
+Si la acción está en progreso (por ejemplo completar formulario), ofrece guardar el trabajo localmente (en memoria o en storage temporal) antes de redirigir.
+
+Redirigir sin perder contexto:
+
+Guardar el lugar/acción actual en la URL o en sessionStorage
+
+Después del login, redirigir a returnTo.
+
+Alternativa: abrir modal de login encima de la pantalla actual para que el usuario inicie sesión y luego continúe sin cambiar de página.
 
 ### Debugging:
 
@@ -484,8 +580,38 @@ const handleLogout = async () => {
     - ¿Qué podría estar causándolo en el contexto de cookies?
     - ¿En qué orden deben ejecutarse `res.cookie()` y `res.json()`?
 
+Qué lo causa:
+
+Ese error aparece si intentas enviar encabezados (como Set-Cookie) después de que ya enviaste la respuesta al cliente (por ejemplo después de res.send() o res.json()).
+
+A veces pasa cuando haces dos respuestas en una ruta por error (ej. un return res.json() y luego en otra rama vuelves a res.cookie() y res.send()).
+
+Orden correcto:
+
+Primero configuras la cookie, p. ej. res.cookie('token', token, opts).
+Después envías la respuesta: res.json({ ok: true }) o res.send().
+Así te aseguras de que los encabezados (incluyendo Set-Cookie) se puedan agregar antes de enviar el cuerpo.
+
 10. **Las cookies no se están guardando en el navegador:**
     - Lista 3 posibles causas y cómo verificarias cada una (algunas causas podrían tener mas de una solución)
+  
+Causa 1 — falta credentials: 'include' en fetch/axios
+
+Cómo verificar: en DevTools → Network, revisa la petición; en la cabecera Cookie no aparece la cookie.
+
+Solución: agrega credentials: 'include' en fetch o withCredentials: true en axios.
+
+Causa 2 — SameSite / Secure mal configurado (o navegador bloquea third-party cookies)
+
+Cómo verificar: en DevTools → Application → Cookies no aparece la cookie; revisa Set-Cookie en la respuesta (Network) y mira sus flags. Si SameSite=None debe tener Secure.
+
+Solución: ajustar SameSite y Secure según entorno; usar HTTPS si Secure es requerido; revisar si el navegador bloquea cookies de terceros.
+
+Causa 3 — CORS no permite credenciales (falta Access-Control-Allow-Credentials: true y origen permitido)
+
+Cómo verificar: en la respuesta preflight o respuesta, falta Access-Control-Allow-Credentials o Access-Control-Allow-Origin está en *. Revisa consola del navegador para errores CORS.
+
+Solución: en backend añadir Access-Control-Allow-Credentials: true y Access-Control-Allow-Origin: https://tu-front (no *).
 
 ### Arquitectura:
 
@@ -493,10 +619,78 @@ const handleLogout = async () => {
     - Crea una tabla con al menos 5 criterios de comparación
     - ¿Describe un caso específico en el que usarías cada uno respectivamente y porque?
 
+  ## Comparación: localStorage vs Cookies
+
+### localStorage
+- Es accesible desde JavaScript.
+- No se envía automáticamente al servidor.
+- Tiene más espacio de almacenamiento.
+- Es vulnerable a ataques XSS.
+- Se debe enviar manualmente en los headers.
+
+### Cookies
+- No son accesibles desde JavaScript si usan `HttpOnly`.
+- Se envían automáticamente en cada petición.
+- Tienen poco espacio de almacenamiento.
+- Son más seguras frente a XSS.
+- Pueden ser vulnerables a CSRF si no se configuran bien.
+
+### Caso para usar cada uno:
+
+Usar cookies: para autenticación de sesiones en apps web tradicionales donde quieres que el navegador envíe la credencial automáticamente y protegerla con HttpOnly.
+
+Usar localStorage: para datos no sensibles, estados de UI, o cuando controlas manualmente tokens y no interactúas con cookies; por ejemplo guardar preferencias locales que no sean críticos.
+
 12. **Diseña una estrategia de migración (en algún ámbito, stack tecnológico, infraestructura, dominio, etc) para una aplicación en producción:**
     - ¿Cómo harías la transición sin afectar a usuarios activos? Describe con un ejemplo práctico en el ámbito seleccionado
     - ¿Qué pasos de rollback implementarías?
 
+Ejemplo práctico (stack: Node/Express backend, SPA frontend) — pasos:
+
+Preparación
+
+Añade soporte en backend para leer cookie además del token en header (acepta ambos para la transición).
+
+Implementa endpoints /login que además de devolver token en body, también pongan cookie HttpOnly. En esta fase aún mantén localStorage en frontend.
+
+Añade endpoint /logout que borre cookie.
+
+Despliegue inicial (fase 1)
+
+Despliega backend nuevo que acepta cookie pero sigue funcionando con token en header.
+
+Actualiza frontend en staging para usar cookie (credentials: include) y probar.
+
+Migración progresiva (fase 2)
+
+En frontend de producción: primero versión que pone cookie al hacer login, pero todavía guarda token en localStorage. Esto garantiza compatibilidad si algo falla.
+
+Monitorea logs y errores.
+
+Cambio de comportamiento (fase 3)
+
+Actualiza frontend para usar sólo cookies (elimina localStorage usage). Despliega a canary o a un % de usuarios si es posible.
+
+Vigila métricas: tasa de login, errores 401, soporte al cliente.
+
+Retiro gradual (fase 4)
+
+Cuando la mayoría de usuarios usen cookies sin problemas, quita el fallback que buscaba token en header y elimina almacenamiento en localStorage del código.
+
+Validaciones y monitoreo
+
+Pruebas automáticas y manuales (login, logout, refresh).
+
+Logs para fallos de autenticación y métricas de CSRF.
+
+Comunicación a usuarios si hay cambios visibles.
+Plan de rollback:
+
+Mantén la versión antigua del backend disponible (o un endpoint de feature-flag) para volver en 1 click.
+
+Si detectas aumento de errores críticos, activa el modo “compatibilidad” que acepta token tanto en cookie como en header y despliega rollback del frontend.
+
+Tener scripts que invaliden cookies nuevos si necesitas forzar a usuarios a volver a login.
 ---
 
 ## Recursos Adicionales
